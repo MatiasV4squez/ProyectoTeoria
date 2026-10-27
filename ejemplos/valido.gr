@@ -1,0 +1,4 @@
+WHEN vida < 20 AND NOT jefe_cerca THEN usar pocion(1);
+WHEN (enemigos > 3 OR municion == 0) AND escudo_activo == FALSE THEN huir;
+WHEN veneno == TRUE THEN curar jugador(25, FALSE);
+WHEN puntos >= 1000 THEN subir nivel;

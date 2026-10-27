@@ -1,0 +1,4 @@
+WHEN vida < THEN huir;
+WHEN enemigos > 3 atacar enemigo;
+WHEN (vida < 20 OR veneno == TRUE THEN curar jugador(25);
+WHEN puntos >= 1000 THEN subir nivel;

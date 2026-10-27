@@ -1,0 +1,1 @@
+WHEN vida < 20 AND NOT jefe_cerca THEN usar pocion(1);
