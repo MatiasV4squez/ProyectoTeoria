@@ -1,0 +1,81 @@
+\section{Manejo de errores}
+
+\subsection{Tipos de error}
+
+El sistema distingue dos tipos de error, y ambos informan la \textbf{línea y la columna} donde ocurren:
+
+\begin{itemize}
+    \item \textbf{Error léxico:} un carácter que no pertenece al alfabeto (por ejemplo \texttt{.}, \texttt{+}, \texttt{á}). Lo detecta el analizador léxico y lanza \texttt{ErrorLexico}.
+    \item \textbf{Error sintáctico:} una secuencia de tokens que no respeta la gramática. Lo detecta el parser cuando el token actual no corresponde a ninguna producción posible, es decir, cuando la celda de la tabla LL(1) está vacía. Lanza \texttt{ErrorSintactico}.
+\end{itemize}
+
+\subsection{Formato de los mensajes}
+
+Los mensajes siguen siempre la misma estructura:
+
+\begin{quote}
+\texttt{Error sintáctico (línea L, columna C): se esperaba X después de 'Y', pero se encontró 'Z'.}
+\end{quote}
+
+donde \texttt{X} es lo que el parser necesitaba en ese punto, \texttt{Y} es el último token consumido y \texttt{Z} es el token que apareció en su lugar (o \emph{el fin de la entrada}). Dos detalles hacen que los mensajes sean más útiles que un simple ``error'':
+
+\begin{enumerate}
+    \item \textbf{El mensaje depende del contexto.} Después de una condición, lo que puede venir es \texttt{AND}, \texttt{OR} o \texttt{THEN}; pero si hay un paréntesis abierto, el \texttt{THEN} no es válido todavía y el mensaje pide \texttt{AND}, \texttt{OR} o \texttt{)}. El parser lleva una lista de los paréntesis abiertos para decidirlo (\texttt{esperado\_fin\_condicion}).
+    \item \textbf{Los paréntesis sin cerrar indican dónde se abrieron.} El mensaje incluye la línea y columna del \texttt{(} correspondiente, lo que ayuda a encontrarlo en reglas largas.
+\end{enumerate}
+
+\subsection{Ejemplos de errores}
+
+La siguiente tabla muestra la salida real del programa para las entradas inválidas de la sección 2.
+
+\begin{table}[H]
+\centering
+\caption{Mensajes de error generados para las entradas inválidas.}
+\footnotesize
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{|p{4.2cm}|X|}
+\hline
+\textbf{Entrada} & \textbf{Mensaje} \\ \hline
+\texttt{WHEN vida < THEN huir;} & Línea 1, columna 13: se esperaba un valor (número, TRUE, FALSE o identificador) después de '<', pero se encontró 'THEN'. \\ \hline
+\texttt{WHEN vida < 20 usar pocion;} & Línea 1, columna 16: se esperaba AND, OR o la palabra reservada THEN después de '20', pero se encontró 'usar'. \\ \hline
+\texttt{WHEN vida < 20 THEN usar pocion} & Línea 1, columna 32: se esperaba '(' o ';' después de 'pocion', pero se encontró el fin de la entrada. \\ \hline
+\texttt{WHEN (vida < 20 THEN huir;} & Línea 1, columna 17: se esperaba ')' para cerrar el '(' de la línea 1, columna 6, después de '20', pero se encontró 'THEN'. \\ \hline
+\texttt{WHEN vida < 20 AND THEN huir;} & Línea 1, columna 20: se esperaba una condición (un identificador, NOT o '(') después de 'AND', pero se encontró 'THEN'. \\ \hline
+\texttt{WHEN vida < 20 THEN atacar();} & Línea 1, columna 28: se esperaba al menos un parámetro (número, TRUE, FALSE o identificador) después de '(', pero se encontró ')'. \\ \hline
+\texttt{THEN huir;} & Línea 1, columna 1: se esperaba la palabra reservada WHEN al inicio de la regla, pero se encontró 'THEN'. \\ \hline
+\texttt{WHEN vida < 20.5 THEN huir;} & Error léxico, línea 1, columna 15: símbolo no reconocido '.'. \\ \hline
+\end{tabularx}
+\end{table}
+
+\subsection{Recuperación de errores: modo pánico}
+
+Un parser que se detiene en el primer error obliga a corregir y ejecutar de nuevo por cada falla. Para evitarlo, GameRules usa \textbf{recuperación en modo pánico}: al detectar un error en una regla, lo registra, descarta tokens hasta un \emph{punto seguro} y sigue analizando la regla siguiente. Así, en una sola ejecución se informan todos los errores del programa.
+
+Los puntos seguros (\texttt{TOKENS\_SINCRONIZACION}) son:
+
+\begin{itemize}
+    \item \texttt{;}: termina la regla con error. Se descarta y el análisis sigue con la regla siguiente.
+    \item \texttt{WHEN} y \texttt{\$}: forman exactamente $\text{FOLLOW}(\texttt{<regla>}) = \{\texttt{WHEN}, \$\}$ (sección 5.2). Un \texttt{WHEN} es el inicio seguro de una nueva regla, y \texttt{\$} es el fin de la entrada.
+\end{itemize}
+
+La recuperación se implementa en dos puntos: el método \texttt{regla\_con\_recuperacion} atrapa el \texttt{ErrorSintactico} de una regla, lo guarda en la lista de errores y llama a \texttt{sincronizar}; y \texttt{programa\_prima} hace lo mismo cuando después de una regla aparece algo que no es ni \texttt{WHEN} ni el fin de la entrada.
+
+Por ejemplo, para la entrada
+
+\begin{lstlisting}
+WHEN a > 1 THEN x y z; WHEN b THEN ok; WHEN c 5 THEN r;
+\end{lstlisting}
+
+el parser informa dos errores y analiza correctamente la regla del medio:
+
+\begin{lstlisting}
+Error sintactico (linea 1, columna 21): se esperaba '(' o ';'
+  despues de 'y', pero se encontro 'z'.
+Error sintactico (linea 1, columna 47): se esperaba un operador
+  relacional, AND, OR o la palabra reservada THEN despues de 'c',
+  pero se encontro '5'.
+\end{lstlisting}
+
+Mientras queden errores sin corregir, el parser no entrega árbol: solo se construye el árbol cuando la entrada completa es válida.
+
+\newpage
