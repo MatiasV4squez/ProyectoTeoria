@@ -1,0 +1,126 @@
+\section{Diseño e implementación del parser}
+
+\subsection{Decisión de diseño: descenso recursivo}
+
+El enunciado permite implementar el analizador predictivo mediante descenso recursivo o mediante una tabla LL(1). Elegimos \textbf{descenso recursivo}, porque el código queda casi idéntico a la gramática: \textbf{cada no terminal es un método} de la clase \texttt{Parser}, y cada método decide qué producción aplicar mirando solo el token actual (un token de anticipación), exactamente como indica la tabla de la sección 6.
+
+La tabla LL(1) no se usa dentro del parser, pero tampoco queda sin validar: el módulo \texttt{gramatica.py} recalcula FIRST, FOLLOW y la tabla de forma automática a partir de las 27 producciones, y confirma que coinciden con los cálculos hechos a mano en las secciones 5 y 6 (el comando \texttt{python -m gamerules.gramatica} informa que no hay conflictos). El parser no depende de ninguna biblioteca que genere el análisis: está escrito completamente a mano.
+
+\subsection{Organización del código}
+
+\begin{table}[H]
+\centering
+\caption{Módulos del proyecto.}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\textbf{Archivo} & \textbf{Responsabilidad} \\ \hline
+\texttt{main.py} & Programa principal: línea de comandos, lectura de archivos y modo interactivo \\ \hline
+\texttt{gamerules/lexico.py} & Analizador léxico: convierte el texto en una lista de tokens con línea y columna \\ \hline
+\texttt{gamerules/sintactico.py} & Parser LL(1) por descenso recursivo, con detección y recuperación de errores \\ \hline
+\texttt{gamerules/arbol.py} & Clase \texttt{Nodo}, impresión del árbol en texto y exportación a Graphviz \\ \hline
+\texttt{gamerules/gramatica.py} & Verificación automática de FIRST, FOLLOW y la tabla LL(1) (no la usa el parser) \\ \hline
+\texttt{pruebas/} & 30 casos de prueba y el programa que los ejecuta \\ \hline
+\end{tabularx}
+\end{table}
+
+El flujo completo es: texto de entrada $\rightarrow$ \texttt{analizador\_lexico} $\rightarrow$ lista de tokens $\rightarrow$ \texttt{Parser} $\rightarrow$ árbol sintáctico o lista de errores. La función \texttt{analizar(texto)} encadena las dos fases y retorna \texttt{(arbol, errores)}: si la entrada es válida el árbol es un objeto \texttt{Nodo} y la lista de errores está vacía; si no, el árbol es \texttt{None}.
+
+\subsection{Cambios al analizador léxico}
+
+Partimos del analizador léxico entregado por el docente y le hicimos dos modificaciones:
+
+\begin{enumerate}
+    \item Agregamos el token \texttt{COMA}, necesario para separar los parámetros de una acción.
+    \item Cada token ahora es una tupla con nombre \texttt{Token(tipo, lexema, linea, columna)}. Para llevar la cuenta de la línea, el salto de línea pasó a ser un token propio (\texttt{SALTO}) que el léxico consume sin entregarlo al parser. Gracias a esto el parser puede indicar \emph{dónde} ocurre cada error.
+\end{enumerate}
+
+Además, el error léxico dejó de ser un \texttt{ValueError} genérico: ahora se lanza una excepción \texttt{ErrorLexico} que incluye la posición del símbolo no reconocido. Al final de la lista de tokens, el parser agrega el token especial \texttt{\$} que marca el fin de la entrada.
+
+\subsection{Correspondencia entre gramática y código}
+
+La siguiente tabla relaciona cada no terminal con su método y con el conjunto que el método consulta para decidir. Estos conjuntos están definidos como constantes al inicio de \texttt{sintactico.py} (por ejemplo \texttt{FOLLOW\_TERMINO\_PRIMA}) y son los mismos que se calcularon en la sección 5.
+
+\begin{table}[H]
+\centering
+\caption{Relación entre producciones, métodos del parser y conjuntos de decisión.}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{|l|l|c|X|}
+\hline
+\textbf{No terminal} & \textbf{Método} & \textbf{Prod.} & \textbf{Cómo decide} \\ \hline
+\texttt{<programa>} & \texttt{programa} & 1 & Una sola alternativa: una regla y luego \texttt{<programa'>} \\ \hline
+\texttt{<programa'>} & \texttt{programa\_prima} & 2, 3 & \texttt{WHEN} $\rightarrow$ 2; \texttt{\$} $\rightarrow$ 3 \\ \hline
+\texttt{<regla>} & \texttt{regla} & 4 & Consume \texttt{WHEN}, condición, \texttt{THEN}, acción y \texttt{;} \\ \hline
+\texttt{<condicion>} & \texttt{condicion} & 5 & Una sola alternativa \\ \hline
+\texttt{<condicion'>} & \texttt{condicion\_prima} & 6, 7 & \texttt{OR} $\rightarrow$ 6; FOLLOW $=\{\texttt{THEN}, \texttt{)}\}$ $\rightarrow$ 7 \\ \hline
+\texttt{<termino>} & \texttt{termino} & 8 & Una sola alternativa \\ \hline
+\texttt{<termino'>} & \texttt{termino\_prima} & 9, 10 & \texttt{AND} $\rightarrow$ 9; FOLLOW $=\{\texttt{OR}, \texttt{THEN}, \texttt{)}\}$ $\rightarrow$ 10 \\ \hline
+\texttt{<factor>} & \texttt{factor} & 11--13 & \texttt{NOT} $\rightarrow$ 11; \texttt{(} $\rightarrow$ 12; \texttt{ID} $\rightarrow$ 13 \\ \hline
+\texttt{<comparacion>} & \texttt{comparacion} & 14, 15 & \texttt{OP\_REL} $\rightarrow$ 14; FOLLOW $=\{\texttt{AND}, \texttt{OR}, \texttt{THEN}, \texttt{)}\}$ $\rightarrow$ 15 \\ \hline
+\texttt{<valor>} & \texttt{valor} & 16--19 & \texttt{NUM}, \texttt{TRUE}, \texttt{FALSE} o \texttt{ID} \\ \hline
+\texttt{<accion>} & \texttt{accion} & 20 & Una sola alternativa: exige un \texttt{ID} como verbo \\ \hline
+\texttt{<objeto>} & \texttt{objeto} & 21, 22 & \texttt{ID} $\rightarrow$ 21; FOLLOW $=\{\texttt{(}, \texttt{;}\}$ $\rightarrow$ 22 \\ \hline
+\texttt{<parametros>} & \texttt{parametros} & 23, 24 & \texttt{(} $\rightarrow$ 23; \texttt{;} $\rightarrow$ 24 \\ \hline
+\texttt{<argumentos>} & \texttt{argumentos} & 25 & Exige que el token esté en FIRST(\texttt{<valor>}) \\ \hline
+\texttt{<argumentos'>} & \texttt{argumentos\_prima} & 26, 27 & \texttt{,} $\rightarrow$ 26; \texttt{)} $\rightarrow$ 27 \\ \hline
+\end{tabularx}
+\end{table}
+
+Las producciones $\varepsilon$ se aplican cuando el token actual pertenece al FOLLOW del no terminal; si no pertenece a ninguno de los dos casos, la celda correspondiente de la tabla está vacía y el método informa un error sintáctico (sección 9).
+
+\subsection{Ejemplos del código}
+
+El método de \texttt{<condicion'>} implementa las producciones 6 y 7. Se ve cómo la alternativa $\varepsilon$ se elige cuando el token pertenece a FOLLOW, y cualquier otro token es un error:
+
+\begin{lstlisting}[language=Python]
+def condicion_prima(self):
+    nodo = Nodo("<condicion'>")
+    if self.actual.tipo == 'OR':
+        # 6: <condicion'> -> OR <termino> <condicion'>
+        nodo.agregar(self.coincidir('OR'))
+        nodo.agregar(self.termino())
+        nodo.agregar(self.condicion_prima())
+    elif self.actual.tipo in FOLLOW_CONDICION_PRIMA:
+        # 7: <condicion'> -> epsilon
+        nodo.agregar(Nodo('eps'))
+    else:
+        raise self.error(self.esperado_fin_condicion())
+    return nodo
+\end{lstlisting}
+
+El método de \texttt{<factor>} implementa las tres alternativas de las producciones 11, 12 y 13. Como sus FIRST son disjuntos (\texttt{NOT}, \texttt{(} e \texttt{ID}), basta un token para elegir:
+
+\begin{lstlisting}[language=Python]
+def factor(self):
+    nodo = Nodo('<factor>')
+    if self.actual.tipo == 'NOT':              # 11
+        nodo.agregar(self.coincidir('NOT'))
+        nodo.agregar(self.factor())
+    elif self.actual.tipo == 'PARENT_IZQ':     # 12
+        nodo.agregar(self.coincidir('PARENT_IZQ'))
+        nodo.agregar(self.condicion())
+        nodo.agregar(self.coincidir('PARENT_DER', ...))
+    elif self.actual.tipo == 'ID':             # 13
+        nodo.agregar(self.coincidir('ID'))
+        nodo.agregar(self.comparacion())
+    else:
+        raise self.error("una condicion (un identificador, NOT o '(')")
+    return nodo
+\end{lstlisting}
+
+\subsection{Funciones auxiliares}
+
+\begin{itemize}
+    \item \texttt{coincidir(tipo)}: si el token actual es del tipo esperado lo consume y crea una hoja del árbol; si no, lanza un \texttt{ErrorSintactico}. Es la operación \emph{match} de los analizadores predictivos.
+    \item \texttt{avanzar()}: pasa al siguiente token (sin pasar nunca del marcador \texttt{\$}).
+    \item \texttt{error(esperado)}: construye el mensaje de error con la posición (sección 9).
+    \item \texttt{sincronizar()}: recuperación en modo pánico después de un error (sección 9).
+\end{itemize}
+
+\subsection{Ambigüedad y precedencia en el código}
+
+La estratificación de la gramática (sección 4) se refleja directamente en la estructura de las llamadas: \texttt{condicion} llama a \texttt{termino} y este llama a \texttt{factor}. Por eso \texttt{a OR b AND c} se analiza siempre como \texttt{a OR (b AND c)}: el \texttt{AND} se consume dentro de \texttt{termino}, antes de que \texttt{condicion\_prima} vea el \texttt{OR}. No hace falta ninguna regla de precedencia adicional en el código.
+
+\newpage
